@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 from datetime import datetime, timedelta
+import time
 
 async def fetch_temp(session, long, lat, date_str):
     url = "https://power.larc.nasa.gov/api/temporal/daily/point"
@@ -19,9 +20,11 @@ async def fetch_temp(session, long, lat, date_str):
             data = await response.json()
             daily_data = data["properties"]["parameter"]["T2M"]
             return list(daily_data.values())[0]
+
     except Exception as e:
         print(f"Failed to fetch temperature for {date_str}: {e}")
         return None
+    
 
 async def fetch_rain(session, long, lat, date_str):
     url = "https://power.larc.nasa.gov/api/temporal/daily/point"
@@ -40,6 +43,7 @@ async def fetch_rain(session, long, lat, date_str):
             data = await response.json()
             daily_data = data["properties"]["parameter"]["PRECTOTCORR"]
             return list(daily_data.values())[0]
+
     except Exception as e:
         print(f"Failed to fetch rainfall for {date_str}: {e}")
         return None
@@ -49,11 +53,11 @@ async def getExpectedTempAndRainAsync(long, lat, target_date):
     all_data = {}
 
     async with aiohttp.ClientSession() as session:
-        for j in range(-4, 5):  # ±4 days around the target
+        for j in range(-1, 1):  # ±4 days around the target
             temp_tasks = []
             rain_tasks = []
 
-            for i in range(1, 11):  # past 10 years
+            for i in range(1, 7):  # past 10 years
                 try:
                     year_adjusted = target.replace(year=target.year - i)
                 except ValueError:
@@ -93,7 +97,3 @@ async def getExpectedTempAndRainAsync(long, lat, target_date):
     }
 
 # Example usage
-if __name__ == "__main__":
-    result = asyncio.run(getExpectedTempAndRainAsync(-74.006, 40.7128, "20250104"))
-    print(f"Expected Temperature: {result['expected_temperature']:.2f} °C")
-    print(f"Rain Probability: {result['rain_probability']*100:.1f}%")
