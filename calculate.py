@@ -53,11 +53,11 @@ async def getExpectedTempAndRainAsync(long, lat, target_date):
     all_data = {}
 
     async with aiohttp.ClientSession() as session:
-        for j in range(-1, 1):  # ±4 days around the target
+        for j in range(-5, 6):  # ±4 days around the target
             temp_tasks = []
             rain_tasks = []
 
-            for i in range(1, 7):  # past 10 years
+            for i in range(1, 11):  # past 10 years
                 try:
                     year_adjusted = target.replace(year=target.year - i)
                 except ValueError:
@@ -81,19 +81,21 @@ async def getExpectedTempAndRainAsync(long, lat, target_date):
             }
 
     # Flatten all temps and rains
+    # Flatten all temps and rains
     all_temps = [temp for day_data in all_data.values() for temp in day_data["temps"]]
-    all_rains = [rain for day_data in all_data.values() for rain in day_data["rains"]]
+    all_rains = [rain for day_data in all_data.values() for rain in day_data["rains"] if rain is not None]
 
     # Compute expected temperature
     expected_temp = sum(all_temps) / len(all_temps) if all_temps else None
 
-    # Compute rain probability
-    rain_events = [r for r in all_rains if r > 0]
+    # Compute rain probability with threshold 1mm
+    rain_events = [r for r in all_rains if r >= 1]  # only count days with rain >= 1mm
     rain_probability = len(rain_events) / len(all_rains) if all_rains else None
 
     return {
         "expected_temperature": expected_temp,
         "rain_probability": rain_probability
     }
+
 
 # Example usage
