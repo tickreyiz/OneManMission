@@ -53,11 +53,11 @@ async def fetch_rain(session, long, lat, date_str):
 # ----------------------------
 # Prediction with Linear Regression
 # ----------------------------
-async def get_expected_temp_and_rain(long, lat, target_date):
+async def get_expected_temp_and_rain(long, lat, target_date, return_history=False):
     target = datetime.strptime(target_date, "%Y%m%d")
-    day_offsets = []
     temps = []
     rains = []
+    history = []
 
     async with aiohttp.ClientSession() as session:
         for j in range(-4, 5):  # ±4 days
@@ -71,52 +71,54 @@ async def get_expected_temp_and_rain(long, lat, target_date):
                     year_adjusted = target.replace(year=target.year - i, day=28)
 
                 new_date = year_adjusted + timedelta(days=j)
-                date_str = new_date.strftime("%Y%m%d")
+                # Skip if new_date went outside intended year
+                if new_date.year != year_adjusted.year:
+                    continue
 
+                date_str = new_date.strftime("%Y%m%d")
                 temp_tasks.append(fetch_temp(session, long, lat, date_str))
                 rain_tasks.append(fetch_rain(session, long, lat, date_str))
 
             year_temps = await asyncio.gather(*temp_tasks)
             year_rains = await asyncio.gather(*rain_tasks)
 
-            for t, r in zip(year_temps, year_rains):
+            for t, r, i_year in zip(year_temps, year_rains, range(1, len(year_temps)+1)):
+                year_actual = target.year - i_year
                 if t is not None:
-                    day_offsets.append([j])
-                    temps.append(t)
-                if r is not None:
-                    rains.append((j, r))
+                    temps.append((j, t))
+                    if return_history:
+                        history.append({"year": year_actual, "offset": j, "temp": t})
+                if r is not None and return_history:
+                    history.append({"year": year_actual, "offset": j, "rain": r})
 
-    # -----------------------
-    # Linear Regression for temperature
-    # -----------------------
-    predicted_temp = None
-    if temps:
+    # Prepare regression for temperature
+    day_offsets = [[offset] for offset, _ in temps]
+    temp_values = [t for _, t in temps]
+
+    if len(temp_values) >= 2:
+        from sklearn.linear_model import LinearRegression
         temp_model = LinearRegression()
-        temp_model.fit(day_offsets, temps)
+        temp_model.fit(day_offsets, temp_values)
         predicted_temp = temp_model.predict([[0]])[0]
-
-    # -----------------------
-    # Rain probability
-    # -----------------------
-    if rains:
-        # Use historical average for rain probability
-        predicted_rain_prob = np.mean([1 if r[1] >= 1 else 0 for r in rains])
+        predicted_temp = max(min(predicted_temp, 50), -50)  # clamp
     else:
-        predicted_rain_prob = 0  # fallback to 0%
+        predicted_temp = None
 
-    return predicted_temp, predicted_rain_prob
+    # Rain probability
+    rain_filtered = [(entry['offset'], entry.get('rain')) for entry in history if 'rain' in entry]
+    rain_targets = [1 if r[1] >= 1 else 0 for r in rain_filtered if r[1] is not None]
+    rain_offsets = [[r[0]] for r in rain_filtered if r[1] is not None]
+
+    if rain_offsets:
+        from sklearn.linear_model import LinearRegression
+        rain_model = LinearRegression()
+        rain_model.fit(rain_offsets, rain_targets)
+        predicted_rain_prob = rain_model.predict([[0]])[0]
+        predicted_rain_prob = min(max(predicted_rain_prob, 0), 1)
+    else:
+        predicted_rain_prob = None
+
+    return (predicted_temp, predicted_rain_prob, history) if return_history else (predicted_temp, predicted_rain_prob)
 
 
-#latitude = 41.0462    # San Francisco
-#longitude = 29.1357
 
-# Target date in YYYYMMDD format
-#target_date = "20251009"
-
-# Call the async function
-#predicted_temp, predicted_rain_prob = asyncio.run(
-#    get_expected_temp_and_rain(longitude, latitude, target_date)
-#)
-
-#print(f"Predicted Temperature: {predicted_temp:.2f} °C")
-#print(f"Predicted Rain Probability: {predicted_rain_prob*100:.1f}%")
