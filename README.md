@@ -14,8 +14,8 @@ This project was **entirely designed and developed by a single developer in just
 
 ```bash
 # Clone the repository
-git clone https://github.com/tickreyiz/OneManMission.git
-cd OneManMission
+git clone https://github.com/tickreyiz/power-ed.git
+cd power-ed
 
 # Install dependencies
 pip install -r requirements.txt
