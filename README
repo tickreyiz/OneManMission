@@ -1,0 +1,22 @@
+# POWER-ed: NASA Weather Estimation Tool
+
+**POWER-ed** is a lightweight web application that provides user-friendly access to NASA’s POWER climate data.  
+It fetches 10 years of historical temperature and precipitation data for any location and date, then applies machine learning to estimate expected temperature and probability of rain. Written in 2 days, by one person for NASA Space Apps Challenge
+
+[Project Demo](https://www.youtube.com/watch?v=eOwu1O-hj1k)  
+[Project Link](https://www.spaceappschallenge.org/2025/find-a-team/onemanmission/)
+
+---
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/tickreyiz/OneManMission.git
+cd OneManMission
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the application
+streamlit run lit.py
