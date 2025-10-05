@@ -1,0 +1,24 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+
+# Logs
+*.log
+
+# Nix/Flake files
+flake.lock
+flake.nix
+
+# Editor temporary files
+*.swp
+*.swo
+*.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

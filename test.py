@@ -1,11 +1,11 @@
 import aiohttp
 import asyncio
 from datetime import datetime, timedelta
-from sklearn.linear_model import LinearRegression
 import numpy as np
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 # ----------------------------
-# NASA API Fetch Functions
+# NASA API Fetch Functions (unchanged)
 # ----------------------------
 async def fetch_temp(session, long, lat, date_str):
     url = "https://power.larc.nasa.gov/api/temporal/daily/point"
@@ -20,14 +20,16 @@ async def fetch_temp(session, long, lat, date_str):
     }
     try:
         async with session.get(url, params=params) as response:
+            if response.status == 429:
+                raise RuntimeError("Rate limit exceeded (HTTP 429) from NASA POWER API")
             response.raise_for_status()
             data = await response.json()
             daily_data = data["properties"]["parameter"]["T2M"]
             return list(daily_data.values())[0]
     except Exception as e:
-        print(f"Failed to fetch temperature for {date_str}: {e}")
+        if "rate limit" in str(e).lower() or "429" in str(e):
+            raise
         return None
-    
 
 async def fetch_rain(session, long, lat, date_str):
     url = "https://power.larc.nasa.gov/api/temporal/daily/point"
@@ -42,16 +44,20 @@ async def fetch_rain(session, long, lat, date_str):
     }
     try:
         async with session.get(url, params=params) as response:
+            if response.status == 429:
+                raise RuntimeError("Rate limit exceeded (HTTP 429) from NASA POWER API")
             response.raise_for_status()
             data = await response.json()
             daily_data = data["properties"]["parameter"]["PRECTOTCORR"]
             return list(daily_data.values())[0]
     except Exception as e:
-        print(f"Failed to fetch rainfall for {date_str}: {e}")
+        if "rate limit" in str(e).lower() or "429" in str(e):
+            raise
         return None
 
+
 # ----------------------------
-# Prediction with Linear Regression
+# Upgraded Prediction Function
 # ----------------------------
 async def get_expected_temp_and_rain(long, lat, target_date, return_history=False):
     target = datetime.strptime(target_date, "%Y%m%d")
@@ -60,7 +66,8 @@ async def get_expected_temp_and_rain(long, lat, target_date, return_history=Fals
     history = []
 
     async with aiohttp.ClientSession() as session:
-        for j in range(-4, 5):  # ±4 days
+        for j in range(-4, 5):  # ±4 day window
+            await asyncio.sleep(0.2)
             temp_tasks = []
             rain_tasks = []
 
@@ -71,7 +78,6 @@ async def get_expected_temp_and_rain(long, lat, target_date, return_history=Fals
                     year_adjusted = target.replace(year=target.year - i, day=28)
 
                 new_date = year_adjusted + timedelta(days=j)
-                # Skip if new_date went outside intended year
                 if new_date.year != year_adjusted.year:
                     continue
 
@@ -85,40 +91,60 @@ async def get_expected_temp_and_rain(long, lat, target_date, return_history=Fals
             for t, r, i_year in zip(year_temps, year_rains, range(1, len(year_temps)+1)):
                 year_actual = target.year - i_year
                 if t is not None:
-                    temps.append((j, t))
+                    # Features: [year, day_offset, month, day_of_year]
+                    month = new_date.month
+                    day_of_year = new_date.timetuple().tm_yday
+                    temps.append(([year_actual, j, month, day_of_year], t))
                     if return_history:
                         history.append({"year": year_actual, "offset": j, "temp": t})
                 if r is not None and return_history:
                     history.append({"year": year_actual, "offset": j, "rain": r})
 
-    # Prepare regression for temperature
-    day_offsets = [[offset] for offset, _ in temps]
-    temp_values = [t for _, t in temps]
-
-    if len(temp_values) >= 2:
-        from sklearn.linear_model import LinearRegression
+    # ----------------------------
+    # Temperature Regression
+    # ----------------------------
+    if len(temps) >= 2:
+        X_temp = [feat for feat, _ in temps]
+        y_temp = [val for _, val in temps]
         temp_model = LinearRegression()
-        temp_model.fit(day_offsets, temp_values)
-        predicted_temp = temp_model.predict([[0]])[0]
-        predicted_temp = max(min(predicted_temp, 50), -50)  # clamp
+        temp_model.fit(X_temp, y_temp)
+
+        # Predict for target day (offset=0)
+        target_features = [[target.year, 0, target.month, target.timetuple().tm_yday]]
+        predicted_temp = temp_model.predict(target_features)[0]
+        predicted_temp = max(min(predicted_temp, 50), -50)
     else:
         predicted_temp = None
 
-    # Rain probability
-    rain_filtered = [(entry['offset'], entry.get('rain')) for entry in history if 'rain' in entry]
-    rain_targets = [1 if r[1] >= 1 else 0 for r in rain_filtered if r[1] is not None]
-    rain_offsets = [[r[0]] for r in rain_filtered if r[1] is not None]
+    # ----------------------------
+    # Rain Logistic Regression
+    # ----------------------------
+# ----------------------------
+# Rain Prediction (Robust Version)
+# ----------------------------
+# ----------------------------
+# Robust Rain Probability (Historical Frequency)
+# ----------------------------
+    rain_values = [
+        entry['rain'] for entry in history
+        if 'rain' in entry and entry['rain'] is not None
+    ]
 
-    if rain_offsets:
-        from sklearn.linear_model import LinearRegression
-        rain_model = LinearRegression()
-        rain_model.fit(rain_offsets, rain_targets)
-        predicted_rain_prob = rain_model.predict([[0]])[0]
-        predicted_rain_prob = min(max(predicted_rain_prob, 0), 1)
+    if rain_values:
+        # Count days with rain >= 1 mm
+        rainy_days = sum(1 for r in rain_values if r >= 1)
+        predicted_rain_prob = rainy_days / len(rain_values)
     else:
         predicted_rain_prob = None
 
-    return (predicted_temp, predicted_rain_prob, history) if return_history else (predicted_temp, predicted_rain_prob)
+    # Optional: clamp probability to [0,1] (safety)
+    if predicted_rain_prob is not None:
+        predicted_rain_prob = min(max(predicted_rain_prob, 0.0), 1.0)
 
-
+        # Return output same as before
+        return (
+            (predicted_temp, predicted_rain_prob, history)
+            if return_history
+            else (predicted_temp, predicted_rain_prob)
+        )
 
