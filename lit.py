@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import altair as alt
 
-from test import get_expected_temp_and_rain  # updated safe function
+from calculate import get_expected_temp_and_rain  # updated safe function
 
 
 # -------------------
